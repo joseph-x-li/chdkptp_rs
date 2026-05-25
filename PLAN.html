@@ -219,7 +219,7 @@
 <h2 id="status">0. Implementation status</h2>
 
 <div class="status-card">
-  <div class="callout-title">As of 2026-05-24 &mdash; verified end-to-end on hardware</div>
+  <div class="callout-title">As of 2026-05-25 &mdash; verified end-to-end on hardware</div>
 
   <div class="status-row">
     <span class="status-phase">PHASE&nbsp;0</span>
@@ -235,8 +235,8 @@
 
   <div class="status-row">
     <span class="status-phase">PHASE&nbsp;2</span>
-    <span>File transfer. <code>TempData</code> / <code>UploadFile</code> / <code>DownloadFile</code>.</span>
-    <span class="status-pending">NEXT</span>
+    <span>File transfer. <code>chdk_temp_data()</code> / <code>upload_file()</code> / <code>download_file()</code>. <strong>End-to-end verified:</strong> 5.5&nbsp;MB JPEG round-trip from camera to local disk in 1.16&nbsp;s (~4.75&nbsp;MB/s); shoot-and-download example pulls a freshly-taken photo using <code>get_image_dir() + get_exp_count()</code> to derive the path.</span>
+    <span class="status-done">✓ DONE</span>
   </div>
 
   <div class="status-row">
@@ -265,7 +265,7 @@
 
   <p style="margin-top: 1rem; margin-bottom: 0; font-size: 0.92em;">
     <strong>Hardware:</strong> Canon PowerShot ELPH 180 (VID&nbsp;0x04A9, PID&nbsp;0x32C1), firmware 1.15.0.1.0, <strong>CHDK PTP protocol 2.9</strong>. macOS Darwin 25.3.0 host with <code>nusb</code> 0.1.14 &mdash; no special USB permissions required.
-    <strong>Crate size:</strong> ~700 LoC Rust across src/, ~250 LoC across examples.
+    <strong>Crate size:</strong> ~850 LoC Rust across src/, ~500 LoC across 10 examples, 8 unit tests for the codec/container layer.
   </p>
 </div>
 
@@ -423,7 +423,7 @@
 │   │   ├── opcode.rs                     ← built (Sub enum + msg/value tag consts)
 │   │   ├── script.rs                     ← built (ScriptMsg/ScriptValue/ScriptStatus)
 │   │   ├── ext.rs                        ← built (chdk_version, execute_script, shoot…)
-│   │   ├── file.rs                       ← planned (upload/download — phase 2)
+│   │   ├── file.rs                       ← built (chdk_temp_data, upload_file, download_file)
 │   │   ├── liveview.rs                   ← planned (phase 4)
 │   │   └── capture.rs                    ← planned (phase 4)
 │   └── rlibs.rs                          ← planned (when we need bundled snippets)
@@ -433,8 +433,13 @@
 │   ├── chdk_version.rs                   ← built
 │   ├── shoot.rs                          ← built
 │   ├── exec_lua.rs                       ← built (raw escape hatch)
-│   └── shoot_all.rs                      ← built (multi-camera synchronized)
-└── tests/                                ← planned
+│   ├── shoot_all.rs                      ← built (barrier multi-camera sync)
+│   ├── shoot_all_clocksync.rs            ← built (per-camera tick-offset sync)
+│   ├── upload_file.rs                    ← built
+│   ├── download_file.rs                  ← built
+│   └── shoot_and_download.rs             ← built (shoot + derive path + pull JPEG)
+└── tests/
+    └── codec.rs                          ← built (8 round-trip tests)
 </code></pre>
 
 <h4>Feature flags</h4>
@@ -502,9 +507,9 @@ async fn main() -&gt; chdkptp::Result&lt;()&gt; {
 </div>
 
 <div class="phase">
-  <div class="phase-header"><span class="phase-num">PHASE 2 <span style="background: var(--extra-soft); color: var(--extra); padding: 0.05em 0.4em; border-radius: 3px; font-size: 0.75em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 0.3rem; vertical-align: middle;">next</span></span><span class="phase-scope">estimate: ~1 h</span></div>
-  <div class="phase-title">CHDK opcodes + file transfer</div>
-  <p><code>chdk_version()</code> done in phase 3 ahead of schedule. Remaining: <code>TempData</code>, <code>UploadFile</code>, <code>DownloadFile</code>. Wire format: UploadFile data phase = u32 filename length + filename bytes + file contents; DownloadFile is preceded by a TempData call carrying the filename. Examples to write: <code>upload_file.rs</code>, <code>download_file.rs</code>, <code>shoot_and_download.rs</code> (full round-trip).</p>
+  <div class="phase-header"><span class="phase-num">PHASE 2 <span class="resolved">done</span></span><span class="phase-scope">actual: ~30 min incl. probing</span></div>
+  <div class="phase-title">File transfer</div>
+  <p><code>chdk_temp_data()</code>, <code>upload_file()</code>, <code>download_file()</code> on <code>PtpSession</code>. Wire format: UploadFile data phase = <code>u32 filename_len</code> + filename bytes + file contents; DownloadFile is preceded by a TempData call that stashes the filename. <strong>Outcome:</strong> byte-identical round-trip of a small text file, plus end-to-end <code>shoot_and_download</code> example that takes a picture, derives the new file's camera-side path via <code>get_image_dir() + get_exp_count()</code>, and pulls the 5.5&nbsp;MB JPEG to local disk at 4.75&nbsp;MB/s.</p>
 </div>
 
 <div class="phase">
@@ -551,6 +556,12 @@ async fn main() -&gt; chdkptp::Result&lt;()&gt; {
   <li><strong>macOS works without special USB drivers.</strong> <code>nusb</code> opens and claims the still-image interface with no entitlements, kexts, or sudo. (The earlier worry about sandboxing turned out to be specific to <code>system_profiler</code>'s SPI; <code>ioreg</code> and <code>nusb</code> both work fine.)</li>
   <li><strong>Time-to-first-pixel for a Rust client is dramatically faster than estimated.</strong> Phase 0 + 1 + 2-partial + 3 collapsed from "~2 working weeks for v0.1" to under two hours of focused work, mostly because <code>nusb</code>'s API was very well-shaped and the CHDK protocol surface really is as small as advertised.</li>
   <li><strong>Multi-camera works out of the box.</strong> No interface-claim conflicts, no bus contention. Synchronized shoot using one thread per camera + <code>std::sync::Barrier</code> fires within scheduler jitter (sub-ms) on the host side; remaining timing variance is per-camera autofocus.</li>
+  <li><strong>CHDK Lua's filesystem API varies wildly by build.</strong> On the ELPH 180 build, <code>os.dir</code> and <code>os.listfiles</code> are both <em>absent</em>; <code>os.stat</code> exists. So generic directory walking doesn't work portably. Workaround: derive the just-taken-photo path from <code>get_image_dir() + get_exp_count()</code> using Canon's deterministic naming (<code>IMG_NNNN.JPG</code>). This is also faster than walking the tree.</li>
+  <li><strong>File transfer throughput: ~4.75&nbsp;MB/s</strong> for IN data phase on USB 2.0 to the ELPH 180 with a 16&nbsp;KB <code>READ_CHUNK</code>. A 5.5&nbsp;MB JPEG transfers in 1.16&nbsp;s. Bumping the chunk to 64&nbsp;KB may help; the obvious next benchmark.</li>
+  <li><strong>Camera-side Lua propcase numbers are model-specific.</strong> On the ELPH 180 build, <code>propcase.FLASH_MODE = 151</code>. Don't hardcode &mdash; use <code>pcall(require, 'propcase')</code> to load the camera's own lookup table, then index by name. Falls back gracefully on builds without the module.</li>
+  <li><strong>Camera-side button-event handling differs across firmware revisions.</strong> Three identical ELPH 180 units in the bench behaved differently: two would fire from <code>press('shoot_full')</code> after a held half-press, one would not (heard the AF chime but no shutter). Root cause: low-level <code>press</code>/<code>release</code> is not portable across all CHDK builds; CHDK's high-level <code>shoot()</code> Lua function is the only reliably portable trigger. Tight-sync use cases hit a real reliability/precision tradeoff.</li>
+  <li><strong>CHDK auto-releases held keys when a <code>lua_State</code> is destroyed.</strong> Verified by probe: <code>press('shoot_half')</code> in one <code>ExecuteScript</code> followed by <code>return get_shooting()</code> in a separate <code>ExecuteScript</code> returns <code>false</code> &mdash; even though no <code>release()</code> was called. Implication: any sequence that requires a button to stay held (e.g. pre-locked AF for synchronized fire) must be in a <em>single</em> Lua script. Splitting "warmup" and "fire" across two <code>ExecuteScript</code> calls silently drops the half-press.</li>
+  <li><strong>Canon's menu flash-mode setting affects more than just whether the flash fires.</strong> When the menu was set to <em>no flash</em>, the camera engaged a separate low-light auto-capture / scene-detection behavior during long half-press holds &mdash; firing the shutter on its own ~2&ndash;3 s into the busy-wait, regardless of our <code>set_prop(p.FLASH_MODE, 1)</code> override. Setting the menu to <em>auto flash</em> restored the normal "wait for explicit full-press" interlock and eliminated the stray captures. Lesson: <code>set_prop(p.FLASH_MODE, &hellip;)</code> controls the firing <em>policy</em>, not the <em>system-enabled</em> mode bit Canon's auto-capture heuristics check &mdash; those live in a different propcase that CHDK doesn't expose by name on this build. Bench-test cameras should be left with menu flash set to <em>auto</em>, not <em>off</em>.</li>
 </ul>
 
 <h2 id="decisions">10. Open decisions to lock down</h2>

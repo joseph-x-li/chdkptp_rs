@@ -1,16 +1,18 @@
-//! Clock-sync variant of shoot_all.
+//! Synchronized multi-camera shoot via per-camera tick-offset measurement +
+//! camera-side busy-wait.
 //!
-//! Per camera:
-//!   1. Warm-up (mode → record, flash on, half-press held).
-//!   2. Measure tick offset between host wall-clock and camera tick
+//! Each camera runs ONE combined Lua script (warmup → busy-wait → fire), so
+//! the half-press stays held inside a single lua_State. (CHDK auto-releases
+//! held keys when the lua_State is destroyed, so splitting WARMUP and FIRE
+//! across two ExecuteScript calls would silently drop the half-press —
+//! verified by probe.)
+//!
+//! Per camera, in its own host thread:
+//!   1. Measure tick offset between host wall-clock and camera tick
 //!      (NTP-style, multiple samples, pick best RTT).
-//!   3. All threads converge on a shared target wall-clock time T.
-//!   4. Each thread sends a script that BUSY-WAITS until its local tick
-//!      equals (T + offset), then fires the shutter.
-//!
-//! The synchronization point moves from "host sends trigger" (subject to
-//! USB jitter) to "each camera watches its own clock" (sub-ms precision
-//! bounded by tick-offset measurement error and busy-wait granularity).
+//!   2. Sync at a barrier so the leader can pick a shared target wall-clock.
+//!   3. Send the combined warmup+busy-wait+fire script with the per-camera
+//!      target tick baked in.
 
 use chdkptp::chdk::{ScriptMsg, ScriptValue};
 use chdkptp::{list_cameras, Result};
@@ -19,50 +21,59 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Instant;
 
-const N_OFFSET_SAMPLES: usize = 7;
+const N_OFFSET_SAMPLES: usize = 20;
 
-/// How far in the future to schedule the synchronized shot, in host ms.
-/// Must exceed the time it takes to dispatch the fire-at script to all
-/// cameras — generous default for ≤10 cameras.
-const TARGET_LEAD_MS: f64 = 800.0;
+/// How far in the future to schedule the synchronized shot.
+/// Must exceed (slowest camera warmup) + safety margin. ELPH 180 warmup is
+/// ~700 ms from record mode, ~3.5 s with cold mode-switch from playback.
+/// 2.5 s keeps busy-wait short enough to avoid triggering Smart Shutter /
+/// Hybrid Auto's "auto-fire on long half-press" behavior. Bump if you see
+/// `busy-wait = 0ms` in the summary (warmup overran target).
+const TARGET_LEAD_MS: f64 = 2500.0;
 
-/// Warm-up: enter record (with extended settle), force flash, half-press HOLD.
-/// Returns `"<status>,<exp_count>"` so we have a pre-shot baseline.
-const WARMUP_LUA: &str = "\
-    if not get_mode() then \
-      switch_mode_usb(1) \
-      sleep(3500) \
-    end \
-    local ok, p = pcall(require, 'propcase') \
-    if ok then set_prop(p.FLASH_MODE, 1) end \
-    press('shoot_half') \
-    local t = get_tick_count() \
-    while not get_shooting() and (get_tick_count() - t) < 5000 do \
-      sleep(50) \
-    end \
-    sleep(200) \
-    local status = get_shooting() and 'armed' or 'no_focus_lock' \
-    return status .. ',' .. get_exp_count()";
-
-/// Offset probe: just return the camera's current tick count.
+/// Probe script: just return the camera's current tick. Used for offset
+/// measurement; no held state, so cross-script teardown doesn't matter.
 const TICK_PROBE_LUA: &str = "return get_tick_count()";
 
-/// Build the per-camera fire-at-tick script. The target tick is baked in.
+/// The combined per-camera script: warmup → busy-wait → fire → return.
 ///
-/// Sequence: busy-wait → re-press shoot_half → SETTLE (critical — some
-/// cameras' input layer drops the original multi-second hold and needs the
-/// re-press to register before shoot_full arrives) → press shoot_full →
-/// hold → release → wait for save → read exp_count.
+/// All in one lua_State so the half-press is genuinely held throughout.
 ///
-/// Returns `"<t_exit>,<t_done>,<exp_before>,<exp_after>"`.
-fn fire_at_lua(target_tick: u64) -> String {
+/// Returns nine comma-separated camera-side values:
+///   `<t_start>,<warmup_done>,<t_exit>,<t_done>,<exp_at_start>,<exp_after_mode>,<exp_after_half>,<exp_before_fire>,<exp_after>`
+///
+/// The five exp_count checkpoints let us pinpoint exactly when any unwanted
+/// shutter actuation happens (mode switch, half-press, during busy-wait, etc).
+fn combined_lua(target_tick: u64) -> String {
     format!(
-        "local t = {target_tick} \
-         while get_tick_count() < t do end \
-         local t_exit = get_tick_count() \
-         local exp_before = get_exp_count() \
+        "local t_start = get_tick_count() \
+         local exp_at_start = get_exp_count() \
+         if not get_mode() then \
+           switch_mode_usb(1) \
+           sleep(3500) \
+         end \
+         local exp_after_mode = get_exp_count() \
+         local ok, p = pcall(require, 'propcase') \
+         if ok then \
+           if p.FLASH_MODE then set_prop(p.FLASH_MODE, 2) end \
+           if p.WB_MODE    then set_prop(p.WB_MODE, 1)    end \
+           if p.DRIVE_MODE then set_prop(p.DRIVE_MODE, 0) end \
+         end \
+         if type(set_iso_mode)    == 'function' then set_iso_mode(1)     end \
+         if type(set_sv96)        == 'function' then set_sv96(411)        end \
+         if type(set_tv96_direct) == 'function' then set_tv96_direct(576) end \
          press('shoot_half') \
-         sleep(80) \
+         local af_start = get_tick_count() \
+         while not get_shooting() and (get_tick_count() - af_start) < 5000 do \
+           sleep(50) \
+         end \
+         sleep(200) \
+         local warmup_done = get_tick_count() \
+         local exp_after_half = get_exp_count() \
+         local target = {target_tick} \
+         while get_tick_count() < target do end \
+         local t_exit = get_tick_count() \
+         local exp_before_fire = get_exp_count() \
          press('shoot_full') \
          sleep(150) \
          release('shoot_full') \
@@ -70,7 +81,7 @@ fn fire_at_lua(target_tick: u64) -> String {
          local t_done = get_tick_count() \
          sleep(1800) \
          local exp_after = get_exp_count() \
-         return t_exit .. ',' .. t_done .. ',' .. exp_before .. ',' .. exp_after"
+         return t_start..','..warmup_done..','..t_exit..','..t_done..','..exp_at_start..','..exp_after_mode..','..exp_after_half..','..exp_before_fire..','..exp_after"
     )
 }
 
@@ -78,16 +89,20 @@ fn fire_at_lua(target_tick: u64) -> String {
 #[allow(dead_code)]
 struct CamTiming {
     label: String,
-    warmup_dur_ms: f64,
     offset_ms: f64,
     offset_rtt_ms: f64,
     target_tick: u64,
-    fire_send_ms: f64,
-    fire_recv_ms: f64,
+    script_send_ms: f64,
+    script_recv_ms: f64,
+    cam_tick_start: Option<u64>,
+    cam_tick_warmup_done: Option<u64>,
     cam_tick_exit: Option<u64>,
     cam_tick_done: Option<u64>,
-    actual_exit_host_ms: Option<f64>, // tick_exit converted back to host time
-    exp_before: Option<u64>,
+    actual_exit_host_ms: Option<f64>,
+    exp_at_start: Option<u64>,
+    exp_after_mode: Option<u64>,
+    exp_after_half: Option<u64>,
+    exp_before_fire: Option<u64>,
     exp_after: Option<u64>,
     errors: Vec<String>,
 }
@@ -100,7 +115,6 @@ fn main() -> Result<()> {
         eprintln!("No Canon devices found.");
         return Ok(());
     }
-
     log(
         t0,
         &format!("list_cameras returned {} device(s)", cams.len()),
@@ -148,22 +162,7 @@ fn main() -> Result<()> {
                     ..Default::default()
                 };
 
-                // ---------- Phase 1: warm-up + hold half-press ----------
-                let w0 = host_ms(t0);
-                log(t0, &format!("{label} warm-up START"));
-                let warmup_msgs = block_on(s.execute_script_wait(WARMUP_LUA, 15_000))?;
-                t.warmup_dur_ms = host_ms(t0) - w0;
-                collect_errors(&label, "warm-up", &warmup_msgs, &mut t.errors);
-                let armed = first_return_string(&warmup_msgs).unwrap_or_default();
-                log(
-                    t0,
-                    &format!(
-                        "{label} warm-up END ({:.1}ms) → {armed:?}",
-                        t.warmup_dur_ms
-                    ),
-                );
-
-                // ---------- Phase 2: measure tick offset (NTP-style) ----------
+                // ---------- Phase 1: measure tick offset (NTP-style) ----------
                 let (offset_ms, rtt_ms) = block_on(measure_offset(&mut s, t0, &label))?;
                 t.offset_ms = offset_ms;
                 t.offset_rtt_ms = rtt_ms;
@@ -175,46 +174,51 @@ fn main() -> Result<()> {
                     ),
                 );
 
-                // ---------- Phase 3: barrier — all offsets known ----------
+                // ---------- Phase 2: barrier, leader computes target ----------
                 let was_leader = b1.wait().is_leader();
                 if was_leader {
                     let target_set = host_ms(t0) + TARGET_LEAD_MS;
                     *target.lock().unwrap() = target_set;
                     log(t0, &format!("LEADER: target host_ms = {:.1}", target_set));
                 }
-                b2.wait(); // all read the same target
+                b2.wait();
 
                 let target_host = *target.lock().unwrap();
                 let target_tick = (target_host + offset_ms).round() as u64;
                 t.target_tick = target_tick;
 
-                // ---------- Phase 4: fire at the local target tick ----------
-                let lua = fire_at_lua(target_tick);
-                t.fire_send_ms = host_ms(t0);
+                // ---------- Phase 3: dispatch combined script ----------
+                let lua = combined_lua(target_tick);
+                t.script_send_ms = host_ms(t0);
                 log(
                     t0,
                     &format!(
-                        "{label} fire SEND  (target_tick={target_tick}, slack={:.1}ms)",
+                        "{label} combined SEND  (target_tick={target_tick}, slack={:.1}ms)",
                         target_host - host_ms(t0)
                     ),
                 );
-                let fire_msgs = block_on(s.execute_script_wait(&lua, 15_000))?;
-                t.fire_recv_ms = host_ms(t0);
-                collect_errors(&label, "fire", &fire_msgs, &mut t.errors);
+                let msgs = block_on(s.execute_script_wait(&lua, 25_000))?;
+                t.script_recv_ms = host_ms(t0);
+                collect_errors(&label, "combined", &msgs, &mut t.errors);
 
-                let ret = first_return_string(&fire_msgs);
-                if let Some(parts) = ret.as_deref().and_then(parse_fire_return) {
-                    t.cam_tick_exit = Some(parts.0);
-                    t.cam_tick_done = Some(parts.1);
-                    t.exp_before = Some(parts.2);
-                    t.exp_after = Some(parts.3);
-                    t.actual_exit_host_ms = Some(parts.0 as f64 - offset_ms);
+                let ret = first_return_string(&msgs);
+                if let Some(parts) = ret.as_deref().and_then(parse_combined_return) {
+                    t.cam_tick_start = Some(parts.0);
+                    t.cam_tick_warmup_done = Some(parts.1);
+                    t.cam_tick_exit = Some(parts.2);
+                    t.cam_tick_done = Some(parts.3);
+                    t.exp_at_start = Some(parts.4);
+                    t.exp_after_mode = Some(parts.5);
+                    t.exp_after_half = Some(parts.6);
+                    t.exp_before_fire = Some(parts.7);
+                    t.exp_after = Some(parts.8);
+                    t.actual_exit_host_ms = Some(parts.2 as f64 - offset_ms);
                 }
                 log(
                     t0,
                     &format!(
-                        "{label} fire RECV ({:.1}ms rtt) → {:?}  actual_exit_host={:?}",
-                        t.fire_recv_ms - t.fire_send_ms,
+                        "{label} combined RECV ({:.1}ms rtt) → {:?}  actual_exit_host={:?}",
+                        t.script_recv_ms - t.script_send_ms,
                         ret.as_deref().unwrap_or("?"),
                         t.actual_exit_host_ms.map(|m| format!("{m:.1}ms")),
                     ),
@@ -233,7 +237,6 @@ fn main() -> Result<()> {
             eprintln!("camera thread error: {e}");
         }
     }
-
     log(
         t0,
         &format!(
@@ -248,10 +251,6 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// NTP-style offset estimate. Returns `(offset_ms, best_rtt_ms)`.
-///
-/// `offset_ms` is defined as `camera_tick - host_ms_at_midpoint`, so the
-/// conversion back is: `host_ms = camera_tick - offset_ms`.
 async fn measure_offset(
     s: &mut chdkptp::PtpSession,
     t0: Instant,
@@ -317,14 +316,21 @@ fn first_return_string(msgs: &[ScriptMsg]) -> Option<String> {
     })
 }
 
-/// Parse `"<t_exit>,<t_done>,<exp_before>,<exp_after>"`.
-fn parse_fire_return(s: &str) -> Option<(u64, u64, u64, u64)> {
+/// Parse the 9-tuple return from `combined_lua`:
+/// `"<t_start>,<warmup_done>,<t_exit>,<t_done>,
+///   <exp_at_start>,<exp_after_mode>,<exp_after_half>,<exp_before_fire>,<exp_after>"`.
+fn parse_combined_return(s: &str) -> Option<(u64, u64, u64, u64, u64, u64, u64, u64, u64)> {
     let mut parts = s.split(',');
     let a = parts.next()?.parse().ok()?;
     let b = parts.next()?.parse().ok()?;
     let c = parts.next()?.parse().ok()?;
     let d = parts.next()?.parse().ok()?;
-    Some((a, b, c, d))
+    let e = parts.next()?.parse().ok()?;
+    let f = parts.next()?.parse().ok()?;
+    let g = parts.next()?.parse().ok()?;
+    let h = parts.next()?.parse().ok()?;
+    let i = parts.next()?.parse().ok()?;
+    Some((a, b, c, d, e, f, g, h, i))
 }
 
 fn print_summary(ts: &[CamTiming], target_host: f64) {
@@ -333,11 +339,19 @@ fn print_summary(ts: &[CamTiming], target_host: f64) {
     println!("Target host_ms: {:.1}", target_host);
     println!();
     println!(
-        "{:<14} {:>9} {:>10} {:>10} {:>10} {:>10}",
-        "camera", "warm-up", "offset RTT", "actual exit", "overshoot", "shutter?"
+        "{:<14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>14}",
+        "camera", "offset RTT", "warmup", "busy-wait", "actual exit", "overshoot", "shutter?"
     );
-    println!("{}", "-".repeat(74));
+    println!("{}", "-".repeat(94));
     for t in ts {
+        let warmup_dur = match (t.cam_tick_start, t.cam_tick_warmup_done) {
+            (Some(a), Some(b)) => format!("{}ms", b.saturating_sub(a)),
+            _ => "?".into(),
+        };
+        let busy_wait_dur = match (t.cam_tick_warmup_done, t.cam_tick_exit) {
+            (Some(a), Some(b)) => format!("{}ms", b.saturating_sub(a)),
+            _ => "?".into(),
+        };
         let overshoot = match t.actual_exit_host_ms {
             Some(actual) => format!("{:+.1}ms", actual - target_host),
             None => "?".into(),
@@ -346,23 +360,50 @@ fn print_summary(ts: &[CamTiming], target_host: f64) {
             .actual_exit_host_ms
             .map(|m| format!("{m:.1}ms"))
             .unwrap_or_else(|| "?".into());
-        let shutter = match (t.exp_before, t.exp_after) {
+        let shutter = match (t.exp_at_start, t.exp_after) {
             (Some(b), Some(a)) if a > b => format!("FIRED (+{})", a - b),
-            (Some(b), Some(a)) if a == b => "MISSED".to_string(),
+            (Some(b), Some(a)) if a == b => "MISSED".into(),
             (Some(b), Some(a)) => format!("?? ({b}→{a})"),
-            _ => "?".to_string(),
+            _ => "?".into(),
         };
         println!(
-            "{:<14} {:>8.1}ms {:>8.2}ms {:>10} {:>10} {:>10}",
-            t.label, t.warmup_dur_ms, t.offset_rtt_ms, actual, overshoot, shutter
+            "{:<14} {:>8.2}ms {:>10} {:>10} {:>10} {:>10} {:>14}",
+            t.label, t.offset_rtt_ms, warmup_dur, busy_wait_dur, actual, overshoot, shutter
+        );
+    }
+    println!();
+    println!("=== exp_count checkpoints (when did extra shutter actuations happen?) ===");
+    println!(
+        "{:<14} {:>10} {:>12} {:>13} {:>14} {:>10}",
+        "camera", "at start", "after mode", "after half", "before fire", "after"
+    );
+    println!("{}", "-".repeat(78));
+    for t in ts {
+        let fmt = |o: Option<u64>| o.map(|v| v.to_string()).unwrap_or_else(|| "?".into());
+        println!(
+            "{:<14} {:>10} {:>12} {:>13} {:>14} {:>10}",
+            t.label,
+            fmt(t.exp_at_start),
+            fmt(t.exp_after_mode),
+            fmt(t.exp_after_half),
+            fmt(t.exp_before_fire),
+            fmt(t.exp_after),
         );
     }
     println!();
     println!("Legend:");
-    println!("  offset        camera_tick - host_ms (NTP midpoint estimate)");
-    println!("  offset RTT    round-trip time of the offset probe (lower = more accurate)");
-    println!("  actual exit   busy-wait exit on the camera, converted back to host wall-clock");
-    println!("  overshoot     actual_exit - target_host (positive = late, negative = early)");
+    println!("  offset RTT    round-trip of best offset probe (smaller = more accurate)");
+    println!("  warmup        camera-side time for mode switch + flash arm + AF lock");
+    println!("  busy-wait     camera-side time in the spin loop (warmup→target)");
+    println!("                if 0, warmup overran target — bump TARGET_LEAD_MS");
+    println!("  actual exit   busy-wait exit on camera, converted to host wall-clock");
+    println!("  overshoot     actual_exit - target_host (positive = late)");
+    println!();
+    println!("exp_count checkpoint columns let you pinpoint when a stray shot fired:");
+    println!("  at start → after mode     : mode switch caused a shot");
+    println!("  after mode → after half   : the half-press caused a shot (drive mode? burst?)");
+    println!("  after half → before fire  : something during busy-wait fired (shouldn't happen)");
+    println!("  before fire → after       : the intended shot — should be exactly +1");
     println!();
 
     if ts.len() >= 2 {
@@ -374,8 +415,6 @@ fn print_summary(ts: &[CamTiming], target_host: f64) {
                 "*** Inter-camera shutter-arming skew: {:.2}ms ***",
                 max - min
             );
-            println!("(this is the precision of the synchronization — what the barrier approach");
-            println!(" cannot do, and what physically limits how close the actual shutters fire)");
         }
     }
 }

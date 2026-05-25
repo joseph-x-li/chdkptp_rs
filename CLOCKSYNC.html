@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>shoot_all_clocksync explained</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e3e3df;
+    --accent: #b8341e;
+    --code-bg: #f1efe9;
+    --offset: #2a4d8f;
+    --offset-soft: #e7eef9;
+    --target: #8a6d00;
+    --target-soft: #fbf3d4;
+    --combined: #2d5a2d;
+    --combined-soft: #e4f0e4;
+    --busy: #c25a00;
+    --busy-soft: #fce8d6;
+    --fire: #b8341e;
+    --fire-soft: #fdecea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.55;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 6rem;
+    font-size: 15.5px;
+  }
+  h1 { font-size: 2rem; margin-bottom: 0.25rem; letter-spacing: -0.01em; }
+  h2 { font-size: 1.35rem; margin-top: 2.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--rule); letter-spacing: -0.01em; }
+  h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+  p { margin: 0.6rem 0; }
+  .subtitle { color: var(--muted); margin-top: 0; }
+  code, pre, .mono { font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace; font-size: 0.88em; }
+  code { background: var(--code-bg); padding: 0.08em 0.35em; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 0.9rem 1.1rem; border-radius: 6px; overflow-x: auto; font-size: 0.82em; line-height: 1.5; border-left: 3px solid var(--rule); }
+  pre code { background: none; padding: 0; }
+
+  /* ----------- swimlane diagram ----------- */
+  .diagram {
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    margin: 1.5rem 0;
+    background: white;
+    overflow: hidden;
+  }
+  .lane-headers {
+    display: grid;
+    grid-template-columns: 1fr 80px 1.4fr;
+    gap: 0;
+    background: var(--code-bg);
+    border-bottom: 2px solid var(--rule);
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .lane-headers > div { padding: 0.55rem 0.9rem; text-align: center; }
+  .lane-headers .l { text-align: left; }
+  .lane-headers .r { text-align: left; }
+  .phase-header {
+    background: var(--code-bg);
+    padding: 0.5rem 0.9rem;
+    font-size: 0.74em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .phase-header.offset   { background: var(--offset-soft);   color: var(--offset);   }
+  .phase-header.target   { background: var(--target-soft);   color: var(--target);   }
+  .phase-header.combined { background: var(--combined-soft); color: var(--combined); }
+  .sub-phase-header {
+    grid-column: 1 / -1;
+    background: white;
+    padding: 0.3rem 0.9rem 0.3rem 1.8rem;
+    font-size: 0.7em;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-top: 1px dotted var(--rule);
+  }
+  .sub-phase-header.warmup { color: var(--combined); }
+  .sub-phase-header.busy   { color: var(--busy); background: var(--busy-soft); }
+  .sub-phase-header.fire   { color: var(--fire); }
+  .step {
+    display: grid;
+    grid-template-columns: 1fr 80px 1.4fr;
+    gap: 0;
+    align-items: stretch;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .step:last-child { border-bottom: none; }
+  .host, .camera {
+    padding: 0.55rem 0.9rem;
+    font-size: 0.92em;
+  }
+  .host { border-right: 1px solid var(--rule); }
+  .camera { border-left: 1px solid var(--rule); background: #fcfcfb; }
+  .arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7em;
+    color: var(--muted);
+    background: linear-gradient(180deg, transparent 49%, var(--rule) 50%, transparent 51%);
+    padding: 0 0.3rem;
+    text-align: center;
+  }
+  .arrow span { background: white; padding: 0 0.3rem; line-height: 1.2; }
+  .arrow.right span::after  { content: ' →'; }
+  .arrow.left  span::before { content: '← '; }
+  .arrow.busy span { background: var(--busy-soft); color: var(--busy); font-weight: 700; }
+  .arrow.busy { background: var(--busy-soft); }
+  .host.action  { font-family: ui-monospace, monospace; font-size: 0.85em; }
+  .camera.action { font-family: ui-monospace, monospace; font-size: 0.85em; background: #f9f9f6; }
+  .camera.busy   { background: var(--busy-soft); }
+  .note { color: var(--muted); font-size: 0.85em; font-style: italic; padding-left: 0.6rem; border-left: 2px solid var(--rule); }
+  .barrier {
+    grid-column: 1 / -1;
+    background: var(--target-soft);
+    color: var(--target);
+    text-align: center;
+    padding: 0.4rem;
+    font-weight: 700;
+    font-size: 0.82em;
+    letter-spacing: 0.05em;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .callout {
+    border-radius: 4px;
+    padding: 0.8rem 1.1rem;
+    margin: 1.25rem 0;
+    font-size: 0.95em;
+  }
+  .callout-warn { background: var(--fire-soft); border-left: 3px solid var(--fire); }
+  .callout-warn strong { color: var(--fire); }
+  .callout-info { background: var(--target-soft); border-left: 3px solid var(--target); }
+  .callout-info strong { color: var(--target); }
+
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.92em; }
+  th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+  .footnote { color: var(--muted); font-size: 0.85em; margin-top: 2.5rem; }
+</style>
+</head>
+<body>
+
+<h1>shoot_all_clocksync.rs</h1>
+<p class="subtitle">Take a synchronized photo across N CHDK-running Canon cameras with sub-10&nbsp;ms inter-camera precision, using per-camera clock-offset measurement + a single combined camera-side script that warms up, busy-waits, and fires &mdash; all inside one <code>lua_State</code>.</p>
+
+<h2>The big idea</h2>
+
+<p>The naive way to fire N cameras "at the same time" is to send each one a "shoot now" command at the same moment. That fails because USB transit is variable (10&ndash;50&nbsp;ms per camera) and the host's thread scheduler adds jitter &mdash; you end up with ~10&ndash;30&nbsp;ms inter-camera skew.</p>
+
+<p>The clock-sync trick moves the synchronization point <strong>off the host and onto each camera</strong>. We measure each camera's tick-clock offset relative to host wall-clock, then send each one a script containing <em>its own</em> target tick. Each camera busy-waits locally on its own clock until the target arrives. The same wall-clock instant arrives on every camera independently &mdash; USB transit jitter happens <em>before</em> the wait and gets absorbed.</p>
+
+<div class="callout callout-warn">
+  <strong>Subtle CHDK behavior:</strong> when an <code>ExecuteScript</code>'s <code>lua_State</code> is destroyed at end of script, CHDK auto-releases any keys held via <code>press()</code>. This means you <strong>cannot</strong> hold <code>shoot_half</code> across two separate <code>ExecuteScript</code> calls &mdash; the camera silently drops the press, even though no <code>release()</code> was called. So the warmup and fire phases must run inside the <em>same</em> script. That's why this design uses one combined Lua script per camera instead of two.
+</div>
+
+<h2>What happens, step by step</h2>
+
+<p>Host runs one OS thread per connected camera. Each thread owns its camera's PTP session. The three columns of the diagram below: <strong>host thread</strong> (Rust code) / <strong>PTP message</strong> (over USB) / <strong>camera</strong> (CHDK script task).</p>
+
+<div class="diagram">
+
+  <div class="lane-headers">
+    <div class="l">Host thread (per camera)</div>
+    <div>PTP / USB</div>
+    <div class="r">Camera (CHDK script task)</div>
+  </div>
+
+  <!-- OFFSET PHASE -->
+  <div class="phase-header offset">Phase 1 &mdash; Tick-offset measurement &nbsp;(per camera, 20 samples each)</div>
+
+  <div class="step">
+    <div class="host action">for i in 0..20 {<br>&nbsp;&nbsp;let t1 = host_now_ms();</div>
+    <div class="arrow right"><span>ExecuteScript</span></div>
+    <div class="camera action">return get_tick_count()</div>
+  </div>
+
+  <div class="step">
+    <div class="host action">&nbsp;&nbsp;let cam_tick = response;<br>&nbsp;&nbsp;let t2 = host_now_ms();<br>&nbsp;&nbsp;let midpoint = (t1 + t2) / 2;<br>&nbsp;&nbsp;let offset = cam_tick - midpoint;<br>&nbsp;&nbsp;<span style="color: var(--muted);">// keep the one with lowest RTT</span><br>}</div>
+    <div class="arrow left"><span>Response</span></div>
+    <div class="camera note">just returns its tick counter; ~1 ms camera-side<br>each probe leaves no held state &mdash; safe to run as separate scripts</div>
+  </div>
+
+  <!-- BARRIER 1 -->
+  <div class="step"><div class="barrier">Barrier #1 &mdash; wait until all threads' offsets are measured</div></div>
+
+  <!-- TARGET PHASE -->
+  <div class="phase-header target">Phase 2 &mdash; Leader picks the target wall-clock time &nbsp;(host-only)</div>
+
+  <div class="step">
+    <div class="host action">if first_thread_to_arrive {<br>&nbsp;&nbsp;target_host_ms = host_now() + 5000ms;<br>}<br><span style="color: var(--muted);">// 5 s lead so even the slowest camera's<br>// warmup completes before busy-wait would exit</span></div>
+    <div class="arrow"><span>(host-only)</span></div>
+    <div class="camera note">(idle &mdash; nothing to do yet)</div>
+  </div>
+
+  <!-- BARRIER 2 -->
+  <div class="step"><div class="barrier">Barrier #2 &mdash; all threads read the same target_host_ms</div></div>
+
+  <!-- COMBINED PHASE -->
+  <div class="phase-header combined">Phase 3 &mdash; Combined script (warmup + busy-wait + fire) &nbsp;(per camera, in parallel, in ONE lua_State)</div>
+
+  <div class="step">
+    <div class="host action">target_tick = target_host_ms + offset[i]<br>let lua = combined_lua(target_tick);<br>execute_script_wait(&lua, 25s)</div>
+    <div class="arrow right"><span>Command + Data + ExecuteScript</span></div>
+    <div class="camera action">local t_start = get_tick_count()</div>
+  </div>
+
+  <div class="sub-phase-header warmup">─ warmup sub-phase ─</div>
+
+  <div class="step">
+    <div class="host note">(waiting on script_status poll, 20 ms interval)</div>
+    <div class="arrow"><span>&hellip;</span></div>
+    <div class="camera action">if not get_mode() then switch_mode_usb(1) sleep(3500) end<br>set_prop(FLASH_MODE, 1)<br>set_prop(WB_MODE, 1)&nbsp; <span style="color: var(--muted);">-- daylight</span><br>set_prop(DRIVE_MODE, 0)&nbsp; <span style="color: var(--muted);">-- single shot</span><br>set_iso_mode(1); set_sv96(411)&nbsp; <span style="color: var(--muted);">-- ISO 100</span><br>set_tv96_direct(576)&nbsp; <span style="color: var(--muted);">-- 1/60s</span></div>
+  </div>
+
+  <div class="step">
+    <div class="host note">(still polling)</div>
+    <div class="arrow"><span>&hellip;</span></div>
+    <div class="camera action">press('shoot_half')<br>while not get_shooting() do sleep(50) end<br>sleep(200)<br>local warmup_done = get_tick_count()<br><span style="color: var(--muted);">-- AF + AE locked; flash primed</span><br><span style="color: var(--accent); font-weight: 700;">-- shoot_half STAYS held (single lua_State!)</span></div>
+  </div>
+
+  <div class="sub-phase-header busy">─ busy-wait sub-phase &nbsp;(this is where the magic happens) ─</div>
+
+  <div class="step">
+    <div class="host note">(still polling)</div>
+    <div class="arrow busy"><span>busy-wait runs<br>locally on camera<br><strong>NO MESSAGES</strong></span></div>
+    <div class="camera busy action"><strong>local target = TARGET_TICK</strong><br><strong>while get_tick_count() &lt; target do end</strong><br><span style="color: var(--busy);">-- spin locally on camera tick<br>-- typically ~1–3 seconds depending on<br>-- how much warmup slack we left<br>-- all cameras converge on the same<br>-- wall-clock instant independently</span></div>
+  </div>
+
+  <div class="sub-phase-header fire">─ fire sub-phase ─</div>
+
+  <div class="step">
+    <div class="host note">(still polling)</div>
+    <div class="arrow"><span>&hellip;</span></div>
+    <div class="camera action">local t_exit = get_tick_count()<br>local exp_before = get_exp_count()<br>press('shoot_full')<br>sleep(150)<br>release('shoot_full')<br>release('shoot_half')<br><span style="color: var(--accent); font-weight: 700;">→ SHUTTER ACTUATES</span><br>local t_done = get_tick_count()<br>sleep(1800)&nbsp; <span style="color: var(--muted);">-- wait for save</span><br>local exp_after = get_exp_count()<br>return t_start..','..warmup_done..','..t_exit..','..t_done..','..exp_before..','..exp_after</div>
+  </div>
+
+  <div class="step">
+    <div class="host action">parse 6-tuple → record actual_exit_host_ms<br>thread joins, summary printed</div>
+    <div class="arrow left"><span>Response</span></div>
+    <div class="camera note">script ends, lua_State destroyed,<br>any still-held keys auto-released (we already released both)</div>
+  </div>
+
+</div>
+
+<h2>Why one combined script (not two)</h2>
+
+<p>The original design had a separate WARMUP script that pressed <code>shoot_half</code> and returned (intending the half-press to stay held), and a separate FIRE script that pressed <code>shoot_full</code>. This had a subtle bug:</p>
+
+<pre><code>$ exec_lua: "press('shoot_half') return 'pressed'"
+→ "pressed"
+
+$ exec_lua: "return tostring(get_shooting())"
+→ "false"             # AF was NOT locked &mdash; half-press already released</code></pre>
+
+<p>CHDK destroys the script's <code>lua_State</code> when the script returns. As part of that teardown, it auto-releases any keys held via <code>press()</code>. So even though the WARMUP script "left" <code>shoot_half</code> pressed, by the time the FIRE script ran, the camera was no longer in half-pressed state. The original FIRE script's <code>press('shoot_half')</code> re-press kicked off a fresh AF cycle &mdash; which on some cameras finishes within a few tens of ms (focus distance retained), but on others takes 200&ndash;800 ms and races with the immediate <code>press('shoot_full')</code> that follows.</p>
+
+<p>The combined-script approach keeps the entire sequence inside one <code>lua_State</code>, so the half-press genuinely persists across warmup → busy-wait → fire. No race, no per-camera firmware-specific behavior to dodge.</p>
+
+<h2>Why this beats the barrier approach</h2>
+
+<table>
+  <thead>
+    <tr><th>Approach</th><th>Where sync happens</th><th>Skew source</th><th>Reliability</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>shoot_all.rs</code> (barrier)</td>
+      <td>Host: all threads exit barrier together, then each sends "fire"</td>
+      <td>USB transit + camera-script-task scheduling jitter (~8 ms)</td>
+      <td>Susceptible to per-camera AF race quirks</td>
+    </tr>
+    <tr>
+      <td><code>shoot_all_clocksync.rs</code></td>
+      <td>Camera: each busy-waits on its own clock, no host trigger</td>
+      <td>Offset-measurement error + tick quantization (~10 ms)</td>
+      <td>Holds half-press correctly because single lua_State</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The key visual difference in the diagram: in Phase 3's busy-wait sub-phase, <strong>no PTP messages flow during the wait</strong>. The host thread is just polling <code>script_status</code> for completion; the synchronization is happening entirely camera-side.</p>
+
+<h2>Precision floor</h2>
+
+<p>CHDK's <code>get_tick_count()</code> has 10 ms granularity on this camera build (probe traces show tick values jumping in multiples of 10). That's the physical floor: even with a perfect offset estimate, two cameras' busy-waits exit at most 10 ms apart because both are quantized to 10 ms ticks.</p>
+
+<p>The other contribution is offset error, bounded by half the round-trip time of the best probe sample &mdash; we take 20 samples per camera and pick the lowest-RTT one. Typical best-RTT after the 20 ms poll-interval tightening is 30&ndash;50 ms, giving 15&ndash;25 ms half-RTT.</p>
+
+<p>Combined: <strong>~2&ndash;10 ms inter-camera shutter-arming skew</strong>. Going tighter would require either higher-resolution camera-side timing (not exposed by CHDK Lua) or hardware sync via a flash-trigger cable.</p>
+
+<h2>What's locked vs auto across cameras</h2>
+
+<p>Phase 3's warmup sub-phase fixes everything we can to make all cameras shoot the same scene the same way:</p>
+
+<table>
+  <thead><tr><th>Locked</th><th>Auto (firmware decides per-camera)</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>FLASH_MODE = 1</code> (on)<br><code>WB_MODE = 1</code> (daylight)<br><code>DRIVE_MODE = 0</code> (single shot)<br><code>iso_mode = 1</code> + <code>sv96 = 411</code> (ISO 100)<br><code>tv96_direct = 576</code> (1/60 sec)</td>
+      <td>Focus distance (per camera, after AF lock)<br>Aperture (no manual control on ELPH-class compacts)<br>AF area / metering pattern (menu setting)<br>Image size / JPEG quality (menu setting)<br>Sharpness / contrast / saturation (menu)<br>Noise reduction (menu)<br>Image stabilizer (menu)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The <code>set_*</code> calls are guarded with <code>type() == 'function'</code> and <code>pcall(require, 'propcase')</code> checks so cameras that don't expose a given knob (auto-only models can't always honor <code>set_tv96_direct</code>) degrade silently rather than erroring.</p>
+
+<h2>Tuning knobs</h2>
+
+<table>
+  <thead><tr><th>Constant</th><th>Default</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td><code>N_OFFSET_SAMPLES</code></td><td>20</td><td>Higher → better odds of catching a low-RTT sample. Each sample is ~20&ndash;50 ms.</td></tr>
+    <tr><td><code>TARGET_LEAD_MS</code></td><td>5000</td><td>Must exceed slowest camera's warmup. If summary shows <code>busy-wait = 0ms</code>, bump this.</td></tr>
+    <tr><td>poll_interval (in <code>chdk::ext</code>)</td><td>20 ms</td><td>How often the host polls <code>script_status</code>. Affects offset-probe RTT precision.</td></tr>
+    <tr><td>fire sleep (in combined script)</td><td>150 ms</td><td>How long <code>shoot_full</code> is held. Long enough for the camera to recognize the press.</td></tr>
+    <tr><td>post-fire sleep</td><td>1800 ms</td><td>Wait before reading <code>exp_count</code>. Must exceed JPEG save time.</td></tr>
+  </tbody>
+</table>
+
+<p class="footnote">Source: <code>examples/shoot_all_clocksync.rs</code> in this repo. Companion: <code>shoot_all.rs</code> (barrier variant) for comparison.</p>
+
+</body>
+</html>

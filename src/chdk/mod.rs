@@ -5,6 +5,7 @@
 //! adds typed methods to `PtpSession` (in `ext`).
 
 pub mod ext;
+pub mod file;
 pub mod opcode;
 pub mod script;
 
