@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>chdkptp_rs — Rewrite Plan</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #e3e3df;
+    --accent: #b8341e;
+    --accent-soft: #fdecea;
+    --core: #2d5a2d;
+    --core-soft: #e4f0e4;
+    --extra: #8a6d00;
+    --extra-soft: #fbf3d4;
+    --code-bg: #f1efe9;
+    --link: #2a4d8f;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 6rem;
+    font-size: 16px;
+  }
+  h1, h2, h3, h4 {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  h1 { font-size: 2.1rem; margin: 0 0 0.25rem; }
+  h2 { font-size: 1.5rem; margin: 3rem 0 0.75rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--rule); }
+  h3 { font-size: 1.15rem; margin: 1.75rem 0 0.5rem; }
+  h4 { font-size: 1rem; margin: 1.25rem 0 0.4rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  p { margin: 0.6rem 0; }
+  .subtitle { color: var(--muted); margin-top: 0; }
+  code, pre, .mono { font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace; font-size: 0.88em; }
+  code { background: var(--code-bg); padding: 0.08em 0.35em; border-radius: 3px; }
+  pre {
+    background: var(--code-bg);
+    padding: 1rem 1.1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.84em;
+    line-height: 1.5;
+    border-left: 3px solid var(--rule);
+  }
+  pre code { background: none; padding: 0; }
+  a { color: var(--link); }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: 0.2rem 0; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.92em;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .tag {
+    display: inline-block;
+    font-size: 0.72em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.1em 0.55em;
+    border-radius: 3px;
+    vertical-align: middle;
+  }
+  .tag-core { background: var(--core-soft); color: var(--core); }
+  .tag-extra { background: var(--extra-soft); color: var(--extra); }
+  .callout {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 0.9rem 1.1rem;
+    margin: 1.25rem 0;
+    border-radius: 4px;
+  }
+  .callout-title {
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0 0 0.4rem;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1rem 0;
+  }
+  .panel {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    padding: 0.9rem 1.1rem;
+  }
+  .panel h4 { margin-top: 0; }
+  .stack-diagram {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 1rem 0;
+    font-family: ui-monospace, "SF Mono", "Menlo", Consolas, monospace;
+    font-size: 0.82em;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .phase {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 0.9rem 1.2rem;
+    margin: 0.85rem 0;
+    background: white;
+  }
+  .phase-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.4rem;
+  }
+  .phase-num {
+    font-family: ui-monospace, monospace;
+    color: var(--muted);
+    font-size: 0.8em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .phase-title { font-weight: 600; font-size: 1.05rem; }
+  .phase-scope { color: var(--muted); font-size: 0.85em; }
+  .toc {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 0.8rem 1.2rem;
+    margin: 1.5rem 0 2rem;
+    font-size: 0.92em;
+  }
+  .toc ol { margin: 0.3rem 0; padding-left: 1.5rem; }
+  .toc li { margin: 0.1rem 0; }
+  hr.soft { border: 0; border-top: 1px dashed var(--rule); margin: 2rem 0; }
+  .footnote { color: var(--muted); font-size: 0.85em; margin-top: 2rem; }
+  .status-card {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbf8 100%);
+    border: 1px solid var(--core);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0 2rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .status-card .callout-title { color: var(--core); }
+  .status-row {
+    display: grid;
+    grid-template-columns: 88px 1fr 100px;
+    gap: 0.5rem 1rem;
+    align-items: baseline;
+    padding: 0.35rem 0;
+    border-bottom: 1px dashed var(--rule);
+    font-size: 0.93em;
+  }
+  .status-row:last-child { border-bottom: none; }
+  .status-phase { font-family: ui-monospace, monospace; font-weight: 700; font-size: 0.78em; letter-spacing: 0.08em; color: var(--muted); }
+  .status-done { color: var(--core); font-weight: 700; text-align: right; font-size: 0.85em; }
+  .status-progress { color: var(--extra); font-weight: 700; text-align: right; font-size: 0.85em; }
+  .status-pending { color: var(--muted); font-weight: 500; text-align: right; font-size: 0.85em; }
+  .resolved {
+    background: var(--core-soft);
+    border-radius: 3px;
+    padding: 0.05em 0.4em;
+    font-size: 0.75em;
+    font-weight: 700;
+    color: var(--core);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-left: 0.3rem;
+    vertical-align: middle;
+  }
+  .strike { text-decoration: line-through; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>chdkptp_rs</h1>
+<p class="subtitle">Plan for a pure-Rust replacement of <code>chdkptp</code> &mdash; talk to CHDK-running Canon cameras from Rust, no host-side Lua required.</p>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ol start="0">
+    <li><a href="#status">Implementation status <em>(updated)</em></a></li>
+    <li><a href="#tldr">TL;DR</a></li>
+    <li><a href="#lua-truth">The truth about Lua &mdash; what actually goes away</a></li>
+    <li><a href="#inventory">What's in chdkptp today</a></li>
+    <li><a href="#chdk-opcodes">CHDK PTP sub-commands reference</a></li>
+    <li><a href="#rust-ecosystem">Existing Rust ecosystem</a></li>
+    <li><a href="#architecture">Proposed Rust architecture</a></li>
+    <li><a href="#api-sketch">API sketch</a></li>
+    <li><a href="#phases">Implementation phases</a></li>
+    <li><a href="#findings">Findings from hardware testing</a></li>
+    <li><a href="#decisions">Open decisions to lock down</a></li>
+    <li><a href="#risks">Risks &amp; unknowns</a></li>
+  </ol>
+</div>
+
+<h2 id="status">0. Implementation status</h2>
+
+<div class="status-card">
+  <div class="callout-title">As of 2026-05-24 &mdash; verified end-to-end on hardware</div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;0</span>
+    <span>USB enumeration. <code>list_cameras()</code> returns a typed <code>CameraInfo</code> per Canon device. Multi-device confirmed (2 cameras simultaneously).</span>
+    <span class="status-done">✓ DONE</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;1</span>
+    <span>PTP framing &amp; session. Container encode/decode, full wire codec (u8/16/32, UTF-16LE strings, u16/u32 arrays), <code>OpenSession</code>/<code>CloseSession</code>, <code>GetDeviceInfo</code> with full dataset parser.</span>
+    <span class="status-done">✓ DONE</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;2</span>
+    <span>File transfer. <code>TempData</code> / <code>UploadFile</code> / <code>DownloadFile</code>.</span>
+    <span class="status-pending">NEXT</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;3</span>
+    <span>Script messaging. <code>ExecuteScript</code>, <code>ScriptStatus</code>, <code>ReadScriptMsg</code>, typed <code>ScriptMsg</code> / <code>ScriptValue</code> enums. <code>execute_script_wait</code> drives polling. <code>shoot()</code> helper auto-switches mode. <strong>Picture verified taken</strong> via <code>get_exp_count()</code> 240&nbsp;→&nbsp;241.</span>
+    <span class="status-done">✓ DONE</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">BONUS</span>
+    <span>Multi-camera synchronized shoot via thread-per-camera + <code>Barrier</code> (<code>examples/shoot_all.rs</code>). Both connected cameras fired with sub-ms host-side skew.</span>
+    <span class="status-done">✓ DONE</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;4</span>
+    <span>Live view decode + <code>RemoteCapture</code>. YUV8 / paletted-overlay → RGB, USB-direct still capture.</span>
+    <span class="status-pending">PENDING</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;5</span>
+    <span>API polish: <code>Camera</code> wrapper, doctests, README, thin <code>chdkptp-cli</code> binary.</span>
+    <span class="status-pending">PENDING</span>
+  </div>
+
+  <p style="margin-top: 1rem; margin-bottom: 0; font-size: 0.92em;">
+    <strong>Hardware:</strong> Canon PowerShot ELPH 180 (VID&nbsp;0x04A9, PID&nbsp;0x32C1), firmware 1.15.0.1.0, <strong>CHDK PTP protocol 2.9</strong>. macOS Darwin 25.3.0 host with <code>nusb</code> 0.1.14 &mdash; no special USB permissions required.
+    <strong>Crate size:</strong> ~700 LoC Rust across src/, ~250 LoC across examples.
+  </p>
+</div>
+
+<h2 id="tldr">1. TL;DR</h2>
+
+<p>chdkptp is a small C core (~11k lines) wrapped in a much larger Lua application (~20k lines). The C side does USB transport, PTP framing, and a single vendor opcode (<code>0x9999</code>) multiplexed into 13 CHDK sub-commands. The Lua side is the CLI, the GUI, helper utilities, and a library of Lua snippets that get <em>shipped to the camera</em> for execution.</p>
+
+<p>A Rust port is very feasible. The protocol surface is small and stable. The C transport/protocol layer is roughly 1500&ndash;2000 lines of focused logic that translates cleanly to Rust. The host-side Lua can be entirely replaced with idiomatic Rust APIs. The on-camera Lua, however, is a fact of the protocol &mdash; see below.</p>
+
+<p><strong>Recommended approach:</strong> single crate <code>chdkptp</code>, built on <code>nusb</code> (pure-Rust USB), async-first API. Port the PTP and CHDK layers cleanly; bundle the essential camera-side Lua snippets as <code>&amp;'static str</code> constants; ship v0.1 with file ops + script messaging, defer GUI/CLI/live-view to later phases.</p>
+
+<h2 id="lua-truth">2. The truth about Lua &mdash; what actually goes away</h2>
+
+<div class="callout">
+  <div class="callout-title">Critical architectural point</div>
+  <p style="margin: 0;">Lua exists in <em>two</em> places in this system. The host-side Lua &mdash; what you type at the chdkptp CLI &mdash; is what you're (rightly) annoyed by, and it goes away completely. The camera-side Lua interpreter lives inside CHDK firmware itself and is the only way to drive non-trivial camera behavior. It does <strong>not</strong> go away. The Rust crate will still compose Lua source and ship it to the camera via <code>PTP_CHDK_ExecuteScript</code>; the difference is that <em>you</em> never have to touch Lua &mdash; the crate handles it behind typed APIs like <code>cam.list_directory()</code> or <code>cam.shoot()</code>.</p>
+</div>
+
+<p>For power users who do want to write custom Lua snippets to run on the camera, the crate exposes <code>execute_script(source: &amp;str)</code> raw. That's the same escape hatch chdkptp has &mdash; it just isn't the default user experience anymore.</p>
+
+<h2 id="inventory">3. What's in chdkptp today</h2>
+
+<h3>3.1 The five-layer stack</h3>
+
+<div class="stack-diagram">┌─────────────────────────────────────────────────────────┐
+│  Layer 5: Host-side Lua application                     │  ~17k LoC
+│           cli.lua, gui*.lua, chdku.lua, dng.lua, ...    │  ← replace with Rust
+├─────────────────────────────────────────────────────────┤
+│  Layer 4: C ↔ Lua glue                                  │  chdkptp.c bindings
+│           lbuf, liveimg, rawimg, lfs, lua-signal        │  ← discard
+├─────────────────────────────────────────────────────────┤
+│  Layer 3: CHDK PTP extensions                           │  ~330 LoC in ptp.c
+│           ptp_chdk_* wrappers (13 sub-commands)         │  ← port to Rust
+├─────────────────────────────────────────────────────────┤
+│  Layer 2: PTP protocol core (forked libptp)             │  ~600 LoC of real logic
+│           container framing, ptp-pack codec             │  ← port to Rust
+├─────────────────────────────────────────────────────────┤
+│  Layer 1: USB transport (libusb-0.1) [+ optional IP]    │  myusb.c, ptpip.c
+│           bulk IN/OUT, control reset                    │  ← nusb / rusb
+└─────────────────────────────────────────────────────────┘
+
+                        ↕ USB bulk pipe
+
+┌─────────────────────────────────────────────────────────┐
+│  CAMERA: CHDK firmware                                  │
+│  - PTP responder w/ vendor opcode 0x9999                │
+│  - Lua interpreter (runs scripts we ship over the wire) │
+│  - uBASIC interpreter (legacy, alternative to Lua)      │
+└─────────────────────────────────────────────────────────┘</div>
+
+<h3>3.2 Component classification</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Subsystem</th>
+      <th>Tag</th>
+      <th>Source</th>
+      <th>Notes for the Rust port</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>USB bulk transport</td><td><span class="tag tag-core">core</span></td><td><code>myusb.c</code> + libusb-0.1</td><td>Use <code>nusb</code>; vendor=0x04a9 (Canon), claim still-image interface.</td></tr>
+    <tr><td>PTP container framing</td><td><span class="tag tag-core">core</span></td><td><code>ptp.c</code> (~600 ln real logic)</td><td>Command / Data / Response containers. Transaction IDs, session state.</td></tr>
+    <tr><td>PTP wire codec (pack/unpack)</td><td><span class="tag tag-core">core</span></td><td><code>ptp-pack.c</code> (~770 ln)</td><td>Little-endian primitives, length-prefixed UTF-16LE strings, arrays.</td></tr>
+    <tr><td>CHDK vendor opcode multiplexer</td><td><span class="tag tag-core">core</span></td><td><code>ptp.c:2070&ndash;2400</code></td><td>13 sub-commands behind <code>PTP_OC_CHDK = 0x9999</code>.</td></tr>
+    <tr><td>File upload / download</td><td><span class="tag tag-core">core</span></td><td><code>ptp_chdk_uploadfile</code> &amp; friends</td><td>Uses <code>TempData</code> to stage the filename, then DownloadFile.</td></tr>
+    <tr><td>Script exec + message I/O</td><td><span class="tag tag-core">core</span></td><td><code>ExecuteScript</code> / <code>ReadScriptMsg</code> / <code>WriteScriptMsg</code> / <code>ScriptStatus</code></td><td>Typed <code>ScriptMsg</code> enum &mdash; NONE / ERR / RET / USER × NIL/BOOL/INT/STRING/TABLE.</td></tr>
+    <tr><td>Camera-side Lua snippets (rlibs)</td><td><span class="tag tag-core">core</span></td><td><code>lua/rlibs.lua</code> (1675 ln)</td><td>Bundle the essential subset as <code>&amp;'static str</code>: <code>serialize</code>, <code>msg_batcher</code>, <code>find_files</code>, <code>ls</code>, <code>rs_shoot*</code>, etc.</td></tr>
+    <tr><td>Live view decode</td><td><span class="tag tag-core">core</span></td><td><code>liveimg.c</code> (~1000 ln)</td><td>YUV8 / paletted-overlay unpack to RGB(A). Useful but defer to phase 4.</td></tr>
+    <tr><td>Remote capture (USB-direct stills)</td><td><span class="tag tag-core">core</span></td><td><code>RemoteCaptureIsReady</code> / <code>GetData</code></td><td>Returns JPG / RAW / DNG header chunks. Phase 3 or 4.</td></tr>
+    <tr><td>GUI (IUP / CD canvas)</td><td><span class="tag tag-extra">extra</span></td><td><code>gui*.lua</code> + IUP bindings</td><td>Out of scope. This is a <em>library</em>.</td></tr>
+    <tr><td>Interactive CLI / REPL</td><td><span class="tag tag-extra">extra</span></td><td><code>cli.lua</code> (2739 ln)</td><td>Optional thin binary in <code>examples/</code> or a separate <code>chdkptp-cli</code> bin.</td></tr>
+    <tr><td>DNG writer</td><td><span class="tag tag-extra">extra</span></td><td><code>dng.lua</code> + <code>rawimg.c</code></td><td>Use the <code>rawloader</code> crate or punt to a separate optional feature.</td></tr>
+    <tr><td>PTP/IP transport</td><td><span class="tag tag-extra">extra</span></td><td><code>ptpip.c</code></td><td>Rare in practice; add later behind a <code>ptpip</code> feature flag.</td></tr>
+    <tr><td>GetMemory / SetMemory / CallFunction</td><td><span class="tag tag-extra">extra</span></td><td><code>ptp.c</code></td><td>Dev/reverse-engineering tools. Expose for completeness, low priority.</td></tr>
+    <tr><td>PTP property name tables</td><td><span class="tag tag-extra">extra</span></td><td><code>properties.c</code> (891 ln)</td><td>Pretty-printing for diagnostics. Skip or auto-generate from spec later.</td></tr>
+    <tr><td><code>lua/extras/</code> sample scripts</td><td><span class="tag tag-extra">extra</span></td><td>motion detect, dcimdl, &hellip;</td><td>User samples. Re-express as Rust examples on demand.</td></tr>
+    <tr><td><code>lbuf</code> binary buffer userdata</td><td><span class="tag tag-extra">extra</span></td><td><code>lbuf.c</code></td><td>Only exists because Lua needs it. Rust uses <code>Vec&lt;u8&gt;</code> / <code>&amp;[u8]</code>.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="chdk-opcodes">4. CHDK PTP sub-commands reference</h2>
+
+<p>All multiplexed through <code>PTP_OC_CHDK = 0x9999</code>. Sub-command goes in <code>Param1</code>. Wire envelope is vanilla PTP &mdash; no custom framing. Current protocol version is 2.8.</p>
+
+<table>
+  <thead>
+    <tr><th>Sub-command</th><th>Direction</th><th>Purpose</th><th>Phase</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>Version</code> (0)</td><td>req</td><td>Return CHDK protocol major/minor version</td><td>2</td></tr>
+    <tr><td><code>ExecuteScript</code></td><td>req+data</td><td>Send Lua / uBASIC source; returns script-id + initial status</td><td>3</td></tr>
+    <tr><td><code>ScriptStatus</code></td><td>req</td><td>Bitmask: RUN, MSG-pending</td><td>3</td></tr>
+    <tr><td><code>ReadScriptMsg</code></td><td>req+data</td><td>Pull one message (NONE / ERR / RET / USER × value-type)</td><td>3</td></tr>
+    <tr><td><code>WriteScriptMsg</code></td><td>req+data</td><td>Push a string into the camera-side script's queue</td><td>3</td></tr>
+    <tr><td><code>ScriptSupport</code></td><td>req</td><td>Which interpreters are compiled into this CHDK build</td><td>3</td></tr>
+    <tr><td><code>UploadFile</code></td><td>req+data</td><td>4-byte filename length, filename, then bytes</td><td>2</td></tr>
+    <tr><td><code>DownloadFile</code></td><td>req+data</td><td>Preceded by <code>TempData</code> with the filename</td><td>2</td></tr>
+    <tr><td><code>TempData</code></td><td>req+data</td><td>Stash a buffer in scratch (filename for DownloadFile)</td><td>2</td></tr>
+    <tr><td><code>GetDisplayData</code></td><td>req+data</td><td>Live view: <code>lv_data_header</code> + viewport / bitmap / palette</td><td>4</td></tr>
+    <tr><td><code>RemoteCaptureIsReady</code></td><td>req</td><td>Poll for capture-over-USB readiness; returns format bitmask</td><td>4</td></tr>
+    <tr><td><code>RemoteCaptureGetData</code></td><td>req+data</td><td>Pull JPG / RAW / DNG-header chunk</td><td>4</td></tr>
+    <tr><td><code>GetMemory</code> / <code>SetMemory</code> / <code>CallFunction</code></td><td>req(+data)</td><td>Read/write camera RAM, call arbitrary function pointer</td><td>5+</td></tr>
+  </tbody>
+</table>
+
+<h2 id="rust-ecosystem">5. Existing Rust ecosystem</h2>
+
+<div class="grid-2">
+  <div class="panel">
+    <h4>Build on</h4>
+    <ul>
+      <li><strong><code>nusb</code></strong> &mdash; pure-Rust USB, async-first, no libusb dep, actively maintained. Recommended transport.</li>
+      <li><strong><code>rawloader</code></strong> &mdash; if/when we want DNG/RAW; explicitly handles CHDK-produced raws.</li>
+      <li><strong><code>thiserror</code></strong>, <strong><code>bytes</code></strong>, <strong><code>byteorder</code></strong> for ergonomics. Maybe <strong><code>tokio</code></strong> for the async runtime in examples.</li>
+    </ul>
+  </div>
+  <div class="panel">
+    <h4>Reference, don't depend</h4>
+    <ul>
+      <li><strong><code>ptp</code> crate</strong> (3drobotics, 2018) &mdash; small, has the right shape (<code>command(code: u16, ...)</code> takes any opcode incl. vendor), but pinned to unmaintained <code>libusb 0.3</code>. Useful as a reading reference; not a dependency.</li>
+      <li><strong><code>gphoto2-rs</code></strong> &mdash; libgphoto2 wrapper. Doesn't expose vendor opcodes, no CHDK awareness. Skip.</li>
+      <li><strong><code>mtp-rs</code></strong> &mdash; newer, async, exposes low-level PTP. Worth a look but probably more abstraction than we want.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="panel">
+  <h4>Existing CHDK-in-Rust?</h4>
+  <p style="margin: 0.3rem 0 0;">None. Crates.io and GitHub topic search both empty. We're filling a real gap.</p>
+</div>
+
+<h2 id="architecture">6. Proposed Rust architecture</h2>
+
+<p>One crate, <code>chdkptp</code>, with internal modules. Workspaces add ceremony without helping users &mdash; <code>cargo add chdkptp</code> is the goal. We can split later if there's appetite.</p>
+
+<p style="font-size: 0.9em; color: var(--muted);">Layout below shows the current state of the tree. Files marked <span class="resolved">built</span> exist on disk and are exercised by an example; the rest are still planned.</p>
+
+<pre><code>chdkptp/
+├── Cargo.toml                            ← built
+├── src/
+│   ├── lib.rs                            ← built
+│   ├── error.rs                          ← built
+│   ├── usb.rs                            ← built (enumeration + CameraInfo handle)
+│   ├── ptp/
+│   │   ├── mod.rs                        ← built
+│   │   ├── codec.rs                      ← built (u8/16/32, UTF-16LE strings, arrays)
+│   │   ├── container.rs                  ← built (encode/decode Command/Data/Response)
+│   │   ├── opcode.rs                     ← built (standard ops + response codes)
+│   │   ├── device_info.rs                ← built (GetDeviceInfo dataset parser)
+│   │   └── session.rs                    ← built (PtpSession + bulk I/O loop)
+│   ├── chdk/
+│   │   ├── mod.rs                        ← built
+│   │   ├── opcode.rs                     ← built (Sub enum + msg/value tag consts)
+│   │   ├── script.rs                     ← built (ScriptMsg/ScriptValue/ScriptStatus)
+│   │   ├── ext.rs                        ← built (chdk_version, execute_script, shoot…)
+│   │   ├── file.rs                       ← planned (upload/download — phase 2)
+│   │   ├── liveview.rs                   ← planned (phase 4)
+│   │   └── capture.rs                    ← planned (phase 4)
+│   └── rlibs.rs                          ← planned (when we need bundled snippets)
+├── examples/
+│   ├── list_cameras.rs                   ← built
+│   ├── device_info.rs                    ← built
+│   ├── chdk_version.rs                   ← built
+│   ├── shoot.rs                          ← built
+│   ├── exec_lua.rs                       ← built (raw escape hatch)
+│   └── shoot_all.rs                      ← built (multi-camera synchronized)
+└── tests/                                ← planned
+</code></pre>
+
+<h4>Feature flags</h4>
+<ul>
+  <li><code>default = ["liveview"]</code></li>
+  <li><code>liveview</code> &mdash; pulls in the YUV decoder (a few hundred lines, no extra deps)</li>
+  <li><code>ptpip</code> &mdash; PTP-over-IP transport (later)</li>
+  <li><code>dng</code> &mdash; raw/DNG helpers via <code>rawloader</code> (later)</li>
+</ul>
+
+<h2 id="api-sketch">7. API sketch</h2>
+
+<p>What it should feel like at the call site:</p>
+
+<pre><code>use chdkptp::{Camera, ScriptValue, ScriptMsg};
+
+#[tokio::main]
+async fn main() -&gt; chdkptp::Result&lt;()&gt; {
+    // Discovery
+    let devices = chdkptp::list_cameras()?;
+    let mut cam = Camera::connect(&amp;devices[0]).await?;
+
+    // Handshake
+    let chdk_ver = cam.chdk_version().await?;
+    println!("CHDK protocol {}.{}", chdk_ver.major, chdk_ver.minor);
+
+    // High-level: bundled rlib does the heavy lifting under the hood
+    let entries = cam.list_directory("A/DCIM/100CANON").await?;
+    for e in entries {
+        println!("{}  {} bytes", e.name, e.size);
+    }
+
+    // Raw escape hatch: ship arbitrary Lua to the camera
+    let id = cam.execute_script("return get_zoom(), get_focus()").await?;
+    while let Some(msg) = cam.read_script_msg().await? {
+        match msg {
+            ScriptMsg::Return { value: ScriptValue::Table(s), .. } =&gt; {
+                println!("zoom+focus = {s}");
+                break;
+            }
+            ScriptMsg::Error { text, .. } =&gt; eprintln!("camera err: {text}"),
+            ScriptMsg::User { .. } | ScriptMsg::None =&gt; {}
+            _ =&gt; {}
+        }
+    }
+
+    // File transfer
+    cam.download_file("A/DCIM/100CANON/IMG_0001.JPG", "img.jpg").await?;
+    Ok(())
+}
+</code></pre>
+
+<h2 id="phases">8. Implementation phases</h2>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 0 <span class="resolved">done</span></span><span class="phase-scope">actual: ~5 min</span></div>
+  <div class="phase-title">Skeleton + USB enumeration</div>
+  <p>Cargo project, <code>nusb</code> wired up, <code>list_cameras()</code> returning Canon PTP devices (vendor 0x04a9, still-image device class). No PTP yet &mdash; just prove the USB path on real hardware. <strong>Outcome:</strong> built and verified first try on a Canon PowerShot ELPH 180 over macOS; multi-device confirmed.</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 1 <span class="resolved">done</span></span><span class="phase-scope">actual: ~30 min</span></div>
+  <div class="phase-title">PTP core</div>
+  <p>Container framing (Command / Data / Response). Pack/unpack codec for all PTP primitives + UTF-16LE strings + length-prefixed arrays. <code>OpenSession</code> / <code>CloseSession</code> / <code>GetDeviceInfo</code> working end-to-end. <strong>Outcome:</strong> first build compiled clean; <code>GetDeviceInfo</code> parsed the camera's full descriptor including 50 supported ops, confirming opcode <code>0x9999</code> is present.</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 2 <span style="background: var(--extra-soft); color: var(--extra); padding: 0.05em 0.4em; border-radius: 3px; font-size: 0.75em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 0.3rem; vertical-align: middle;">next</span></span><span class="phase-scope">estimate: ~1 h</span></div>
+  <div class="phase-title">CHDK opcodes + file transfer</div>
+  <p><code>chdk_version()</code> done in phase 3 ahead of schedule. Remaining: <code>TempData</code>, <code>UploadFile</code>, <code>DownloadFile</code>. Wire format: UploadFile data phase = u32 filename length + filename bytes + file contents; DownloadFile is preceded by a TempData call carrying the filename. Examples to write: <code>upload_file.rs</code>, <code>download_file.rs</code>, <code>shoot_and_download.rs</code> (full round-trip).</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 3 <span class="resolved">done</span></span><span class="phase-scope">actual: ~45 min incl. debugging</span></div>
+  <div class="phase-title">Script messaging</div>
+  <p><code>execute_script_lua()</code>, <code>script_status()</code>, <code>read_script_msg()</code> with the typed <code>ScriptMsg</code> enum (Error/Return/User/None) × <code>ScriptValue</code> (Nil/Boolean/Integer/String/Table/Unsupported). <code>execute_script_wait()</code> drives polling to completion. <code>shoot()</code> helper auto-switches camera to record mode and fires shutter. <strong>Outcome:</strong> picture taken &mdash; <code>get_exp_count()</code> went 240&nbsp;→&nbsp;241 in a single transaction. Plus multi-camera synchronized shoot via thread-per-camera + <code>Barrier</code>.</p>
+  <p style="font-size: 0.88em; color: var(--muted); margin-top: 0.4rem;">Bundled rlibs (serialize/msg_batcher/find_files/ls/&hellip;) deferred &mdash; not needed yet for the operations we've covered.</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 4</span><span class="phase-scope">~3&ndash;4 days</span></div>
+  <div class="phase-title">Live view + remote capture</div>
+  <p>Port <code>liveimg.c</code>'s YUV8 / paletted-overlay decode (gated behind <code>liveview</code> feature). <code>get_display_data()</code> returns a typed <code>LiveViewFrame</code> with viewport / bitmap / palette planes; helper <code>decode_viewport_rgb()</code>. <code>RemoteCaptureIsReady</code> / <code>GetData</code> for USB-direct stills.</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 5</span><span class="phase-scope">~2 days</span></div>
+  <div class="phase-title">Examples + docs + a thin CLI</div>
+  <p>Polished <code>examples/</code>, doctested API docs, a small <code>chdkptp-cli</code> binary that covers the 80% case (<code>connect</code>, <code>ls</code>, <code>download</code>, <code>shoot</code>, <code>exec</code>). Not the full chdkptp REPL &mdash; just the table-stakes.</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 6+</span><span class="phase-scope">as wanted</span></div>
+  <div class="phase-title">Later</div>
+  <p>PTP/IP transport (<code>ptpip</code> feature). DNG writer via <code>rawloader</code> (<code>dng</code> feature). <code>GetMemory</code>/<code>SetMemory</code>/<code>CallFunction</code> debug ops. Property name tables for diagnostics. uBASIC support (low priority &mdash; almost no one writes uBASIC anymore).</p>
+</div>
+
+<p><strong>Aggregate estimate:</strong> ~2 working weeks for v0.1 (phases 0&ndash;3), ~3&ndash;3.5 weeks to a polished v1 with live view and CLI (phases 0&ndash;5). Real elapsed time depends heavily on hardware-in-the-loop debugging.</p>
+
+<h2 id="findings">9. Findings from hardware testing</h2>
+
+<p>Things that came out of bringing the protocol up against a real camera that weren't in the original inventory:</p>
+
+<div class="callout">
+  <div class="callout-title">Protocol quirk: <code>ExecuteScript</code> source must be NUL-terminated</div>
+  <p style="margin: 0;">CHDK's camera-side handler loads scripts via <code>luaL_loadstring</code>, not <code>luaL_loadbuffer(buf, len)</code>. The container length is <em>not</em> used to bound the source &mdash; the camera walks the buffer until it hits a <code>\0</code>. Without a trailing NUL, your script gets concatenated with stale bytes from whichever <code>ExecuteScript</code> ran before it, producing baffling parse errors like <code>'&lt;eof&gt;' expected near 'om'</code>. Symptom diagnosis: send <code>"return 42"</code> twice after a longer script; the error mentions bytes from the previous source. Fix is one line in <code>execute_script_lua</code> &mdash; append a <code>0</code> byte before sending.</p>
+</div>
+
+<ul>
+  <li><strong>CHDK protocol version is 2.9</strong> on current builds (the original inventory said 2.8). One minor bump, no breaking changes.</li>
+  <li><strong>Camera defaults to playback mode when USB-attached.</strong> <code>shoot()</code> silently no-ops if the camera is in playback &mdash; no error, no message, just nothing. The <code>shoot()</code> helper now runs <code>if not get_mode() then switch_mode_usb(1) sleep(2000) end</code> before firing.</li>
+  <li><strong>Multi-valued Lua returns become multiple <code>ScriptMsg::Return</code> messages.</strong> <code>get_mode()</code> returns <code>(record_bool, movie_bool, mode_code)</code>, which arrives as three separate RET messages in order. Our typed enum doesn't aggregate them &mdash; the caller iterates the vec. This is fine; just worth knowing.</li>
+  <li><strong>Camera sleeps off the USB bus after ~30&nbsp;s of idle.</strong> Both <code>list_cameras()</code> and the OS-level <code>ioreg</code> stop seeing the device. Wake by half-pressing shutter or power-cycle. We surface this as <code>Error::NoDevicesFound</code>; long-running tools will need to handle re-enumeration.</li>
+  <li><strong>macOS works without special USB drivers.</strong> <code>nusb</code> opens and claims the still-image interface with no entitlements, kexts, or sudo. (The earlier worry about sandboxing turned out to be specific to <code>system_profiler</code>'s SPI; <code>ioreg</code> and <code>nusb</code> both work fine.)</li>
+  <li><strong>Time-to-first-pixel for a Rust client is dramatically faster than estimated.</strong> Phase 0 + 1 + 2-partial + 3 collapsed from "~2 working weeks for v0.1" to under two hours of focused work, mostly because <code>nusb</code>'s API was very well-shaped and the CHDK protocol surface really is as small as advertised.</li>
+  <li><strong>Multi-camera works out of the box.</strong> No interface-claim conflicts, no bus contention. Synchronized shoot using one thread per camera + <code>std::sync::Barrier</code> fires within scheduler jitter (sub-ms) on the host side; remaining timing variance is per-camera autofocus.</li>
+</ul>
+
+<h2 id="decisions">10. Open decisions to lock down</h2>
+
+<table>
+  <thead><tr><th>Question</th><th>Recommendation / Status</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>USB backend: <code>nusb</code> or <code>rusb</code>?</td>
+      <td><code>nusb</code> <span class="resolved">decided + working</span></td>
+      <td>Pure Rust, no libusb dep at build time, async-first, actively maintained. Confirmed: macOS support is excellent; bulk endpoint API is clean.</td>
+    </tr>
+    <tr>
+      <td>Async or sync API?</td>
+      <td>Async-first; <code>pollster::block_on</code> in examples <span class="resolved">decided + working</span></td>
+      <td><code>nusb</code> is async-native. Pollster keeps examples sync-looking without pulling in tokio. Multi-camera example uses <code>std::thread + block_on</code> per camera &mdash; works cleanly.</td>
+    </tr>
+    <tr>
+      <td>One crate or workspace?</td>
+      <td>Single crate <span class="resolved">decided + working</span></td>
+      <td>Total Rust LoC is now ~700 and likely to plateau under 3k. Single crate is right.</td>
+    </tr>
+    <tr>
+      <td>DNG / RAW handling: port <code>rawimg.c</code> + <code>dng.lua</code>, or reuse <code>rawloader</code>?</td>
+      <td>Reuse <code>rawloader</code>, behind <code>dng</code> feature</td>
+      <td>Still pending. Camera-side raw dump works regardless; the question is only about host-side DNG writing convenience.</td>
+    </tr>
+    <tr>
+      <td>GUI in scope?</td>
+      <td>No <span class="resolved">decided</span></td>
+      <td>This is a library. GUI is downstream.</td>
+    </tr>
+    <tr>
+      <td>Lua snippet ergonomics &mdash; bundled rlibs vs. inline strings vs. compile-time macro?</td>
+      <td>Inline strings for now</td>
+      <td>So far every operation has fit in a one-liner inline string (with the NUL fix). Bundled rlibs may not be needed at all if we're disciplined &mdash; revisit if/when a snippet grows past ~10 lines.</td>
+    </tr>
+    <tr>
+      <td>MSRV?</td>
+      <td>1.78 (in Cargo.toml) <span class="resolved">decided</span></td>
+      <td>Generous floor; Rust 1.94 in use locally. Easy to relax later.</td>
+    </tr>
+    <tr>
+      <td>Wrap <code>PtpSession</code> in a <code>Camera</code> struct that owns the connection?</td>
+      <td>Not yet</td>
+      <td>Current shape (CHDK ops as inherent impls on <code>PtpSession</code>) works fine. Refactor when an actual reason appears (e.g. needing connection-level state that isn't PTP-session-level).</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="risks">11. Risks &amp; unknowns</h2>
+
+<ul>
+  <li><strong class="strike">Hardware testing.</strong> <span class="resolved">resolved</span> &mdash; PowerShot ELPH 180 ×2 on the bench, both confirmed working with CHDK 2.9.</li>
+  <li><strong class="strike">USB quirks on macOS.</strong> <span class="resolved">resolved</span> &mdash; <code>nusb</code> works clean. Linux variant remains untested but the pure-Rust backend doesn't share libusb's URB-flakiness risk.</li>
+  <li><strong>USB quirks at scale.</strong> Large file transfers (multi-MB JPEGs, raw dumps) untested. The 16&nbsp;KB read-chunk size in <code>session.rs</code> should scale, but worth a benchmark when phase 2 lands.</li>
+  <li><strong>Camera firmware variance.</strong> Still real. The ELPH 180 doesn't have <code>os.listfiles</code> (it's not part of CHDK Lua core; only some builds), so the directory-walking approach for "find the newest image" needs care. Probe with <code>os.dir</code> instead.</li>
+  <li><strong class="strike">UTF-16 string edge cases.</strong> <span class="resolved">resolved</span> &mdash; codec verified on a 50-op DeviceInfo dataset and round-trips the camera's Unicode-clean strings.</li>
+  <li><strong>Bundled rlibs version drift.</strong> Still relevant for whenever we adopt them. Mitigation unchanged: small, conservative selection; expose <code>execute_script_lua()</code> as the escape hatch (already done).</li>
+  <li><strong>Camera USB sleep.</strong> <em>(new)</em> Cameras drop off USB after ~30&nbsp;s idle. Any long-running tool needs to handle <code>NoDevicesFound</code> by re-enumerating. Worth a future <code>Camera::reconnect()</code>.</li>
+  <li><strong>Lua-on-camera is unavoidable.</strong> Worth restating: if anyone reads this plan and expects the Rust crate to mean "no Lua anywhere," they'll be surprised. Now reinforced &mdash; even the in-memory shoot helper sends a 4-line Lua snippet.</li>
+</ul>
+
+<p class="footnote">Original inventory derived from reading the <code>svn2github/chdkptp</code> source mirror. Hardware findings added 2026-05-24 after live testing against a Canon PowerShot ELPH 180. Line counts are from the actual source tree as of the survey.</p>
+
+</body>
+</html>

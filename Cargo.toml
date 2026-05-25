@@ -1,0 +1,19 @@
+[package]
+name = "chdkptp"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+description = "Pure-Rust client for Canon cameras running CHDK firmware (PTP/USB)"
+license = "MIT"
+repository = "https://github.com/joseph-x-li/chdkptp_rs"
+readme = "README.md"
+keywords = ["chdk", "canon", "camera", "ptp", "usb"]
+categories = ["multimedia::images", "hardware-support", "api-bindings"]
+exclude = ["PLAN.html", ".github/", "target/"]
+
+[dependencies]
+nusb = "0.1"
+thiserror = "1"
+
+[dev-dependencies]
+pollster = "0.3"
