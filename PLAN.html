@@ -219,7 +219,7 @@
 <h2 id="status">0. Implementation status</h2>
 
 <div class="status-card">
-  <div class="callout-title">As of 2026-05-25 &mdash; verified end-to-end on hardware</div>
+  <div class="callout-title">As of 2026-05-26 &mdash; verified end-to-end on hardware</div>
 
   <div class="status-row">
     <span class="status-phase">PHASE&nbsp;0</span>
@@ -252,9 +252,21 @@
   </div>
 
   <div class="status-row">
-    <span class="status-phase">PHASE&nbsp;4</span>
-    <span>Live view decode + <code>RemoteCapture</code>. YUV8 / paletted-overlay → RGB, USB-direct still capture.</span>
+    <span class="status-phase">PHASE&nbsp;4a</span>
+    <span>Live view decode. <code>get_display_data()</code>, typed <code>LiveViewFrame</code> + <code>LvDataHeader</code> + <code>FramebufferDesc</code> parsers, Y411 / UYVYYY decoder (6 bytes per 4 pixels, BT.601 with chdkptp's integer coefficients). <code>examples/live_view.rs</code> saves PPM frames; live preview verified end-to-end into a browser.</span>
+    <span class="status-done">✓ DONE</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">PHASE&nbsp;4b</span>
+    <span><code>RemoteCapture</code> &mdash; USB-direct still capture (<code>RemoteCaptureIsReady</code> / <code>GetData</code>). Optional path for tethered shooting without SD card writes.</span>
     <span class="status-pending">PENDING</span>
+  </div>
+
+  <div class="status-row">
+    <span class="status-phase">DOWN&shy;STREAM</span>
+    <span><code>chdkpano</code> &mdash; web UI (axum backend + Leptos WASM frontend, 100% Rust no JS) consuming this crate as a library. Live preview, mode-switch, multi-camera. Lives in a separate repo and uses <code>chdkptp</code> via path dep / crates.io.</span>
+    <span class="status-done">✓ WORKING</span>
   </div>
 
   <div class="status-row">
@@ -424,7 +436,7 @@
 │   │   ├── script.rs                     ← built (ScriptMsg/ScriptValue/ScriptStatus)
 │   │   ├── ext.rs                        ← built (chdk_version, execute_script, shoot…)
 │   │   ├── file.rs                       ← built (chdk_temp_data, upload_file, download_file)
-│   │   ├── liveview.rs                   ← planned (phase 4)
+│   │   ├── liveview.rs                   ← built (Y411 decoder, get_display_data)
 │   │   └── capture.rs                    ← planned (phase 4)
 │   └── rlibs.rs                          ← planned (when we need bundled snippets)
 ├── examples/
@@ -520,9 +532,15 @@ async fn main() -&gt; chdkptp::Result&lt;()&gt; {
 </div>
 
 <div class="phase">
-  <div class="phase-header"><span class="phase-num">PHASE 4</span><span class="phase-scope">~3&ndash;4 days</span></div>
-  <div class="phase-title">Live view + remote capture</div>
-  <p>Port <code>liveimg.c</code>'s YUV8 / paletted-overlay decode (gated behind <code>liveview</code> feature). <code>get_display_data()</code> returns a typed <code>LiveViewFrame</code> with viewport / bitmap / palette planes; helper <code>decode_viewport_rgb()</code>. <code>RemoteCaptureIsReady</code> / <code>GetData</code> for USB-direct stills.</p>
+  <div class="phase-header"><span class="phase-num">PHASE 4a <span class="resolved">done</span></span><span class="phase-scope">actual: ~3 h incl. format hunt</span></div>
+  <div class="phase-title">Live view decode</div>
+  <p>Ported the essentials from <code>liveimg.c</code>: <code>get_display_data()</code> PTP call, <code>LvDataHeader</code> + <code>FramebufferDesc</code> v2.2 parsers, Y411 / UYVYYY decoder (6 bytes per 4 pixels, BT.601 with chdkptp's exact integer coefficients <code>R+=V·5743, G&minus;=U·1411+V·2925, B+=U·7258</code>). <code>examples/live_view.rs</code> saves PPM frames; <code>chdkpano</code> web UI streams JPEG-encoded frames into a browser at ~30&nbsp;ms per request. <strong>Three format-spec bugs found and fixed</strong> by reading CHDK source: see §9 findings.</p>
+</div>
+
+<div class="phase">
+  <div class="phase-header"><span class="phase-num">PHASE 4b</span><span class="phase-scope">~1&ndash;2 days</span></div>
+  <div class="phase-title">Remote capture</div>
+  <p><code>RemoteCaptureIsReady</code> / <code>GetData</code> for USB-direct stills (JPG / RAW / DNG header chunks). Bypasses the SD card. Optional for tethered shooting workflows. Not yet built.</p>
 </div>
 
 <div class="phase">
@@ -562,6 +580,9 @@ async fn main() -&gt; chdkptp::Result&lt;()&gt; {
   <li><strong>Camera-side button-event handling differs across firmware revisions.</strong> Three identical ELPH 180 units in the bench behaved differently: two would fire from <code>press('shoot_full')</code> after a held half-press, one would not (heard the AF chime but no shutter). Root cause: low-level <code>press</code>/<code>release</code> is not portable across all CHDK builds; CHDK's high-level <code>shoot()</code> Lua function is the only reliably portable trigger. Tight-sync use cases hit a real reliability/precision tradeoff.</li>
   <li><strong>CHDK auto-releases held keys when a <code>lua_State</code> is destroyed.</strong> Verified by probe: <code>press('shoot_half')</code> in one <code>ExecuteScript</code> followed by <code>return get_shooting()</code> in a separate <code>ExecuteScript</code> returns <code>false</code> &mdash; even though no <code>release()</code> was called. Implication: any sequence that requires a button to stay held (e.g. pre-locked AF for synchronized fire) must be in a <em>single</em> Lua script. Splitting "warmup" and "fire" across two <code>ExecuteScript</code> calls silently drops the half-press.</li>
   <li><strong>Canon's menu flash-mode setting affects more than just whether the flash fires.</strong> When the menu was set to <em>no flash</em>, the camera engaged a separate low-light auto-capture / scene-detection behavior during long half-press holds &mdash; firing the shutter on its own ~2&ndash;3 s into the busy-wait, regardless of our <code>set_prop(p.FLASH_MODE, 1)</code> override. Setting the menu to <em>auto flash</em> restored the normal "wait for explicit full-press" interlock and eliminated the stray captures. Lesson: <code>set_prop(p.FLASH_MODE, &hellip;)</code> controls the firing <em>policy</em>, not the <em>system-enabled</em> mode bit Canon's auto-capture heuristics check &mdash; those live in a different propcase that CHDK doesn't expose by name on this build. Bench-test cameras should be left with menu flash set to <em>auto</em>, not <em>off</em>.</li>
+  <li><strong>Three concurrent bugs in our initial live view decoder, all hiding behind a single "wrong colors" symptom.</strong> Each one masked the others. (a) <code>LV_FB_YUV8 = 0</code> in canonical CHDK enum order, not <code>1</code> as I'd guessed &mdash; so the descriptor's <code>fb_type=0</code> was the <em>correct</em> YUV8 marker, not "no data." (b) <code>LV_TFR_BITMAP = 0x04</code> and <code>LV_TFR_PALETTE = 0x08</code>, not <code>0x02</code> and <code>0x04</code> &mdash; the bitmap-vs-palette flag values are swapped between chdkptp source and what's intuitive from the constant order. (c) The actual viewport format is <strong>Y411 / UYVYYY</strong> (12 bpp, 6 bytes per 4 pixels: <code>U Y0 V Y1 Y2 Y3</code> with one chroma pair shared across 4 luma samples) &mdash; not YUV4:2:0 planar or YUV4:2:2 packed, both of which happen to fit the same byte count and produce structurally-correct-but-color-wrong images, hiding the real bug. The fix required reading CHDK's <code>liveimg.c</code> directly; the canonical BT.601 coefficients there (integer fixed-point: <code>R += V·5743</code>, <code>G &minus;= U·1411 + V·2925</code>, <code>B += U·7258</code>, all <code>+ 2048 &gt;&gt; 12</code>) match nothing else on the internet exactly.</li>
+  <li><strong>The viewfinder pipeline runs only when the LCD is on, and that's controlled by the camera physically (or by user menu setting), not via PTP.</strong> Originally I thought we needed to hold <code>shoot_half</code> to "wake the pipeline" before <code>get_display_data</code> could return real frames. Tested at ~2&nbsp;s per frame using a 30-second held-half-press arm script. Then user pointed out that the LCD is always on on his cameras, so the pipeline is always running. Confirmed: removing the arm logic entirely dropped latency from ~2&nbsp;s to <strong>~30&nbsp;ms per frame</strong> with no half-press at all. Lesson: don't fight the camera; if the LCD viewfinder is showing pixels, those same pixels are flowing into the YUV buffer we read.</li>
+  <li><strong>macOS <code>ptpcamerad</code> races us for the USB device claim on every connect.</strong> Symptom: <code>claim_interface(0): could not be opened for exclusive access</code>. Workarounds: (1) <code>sudo killall ptpcamerad</code> (one-shot, daemon respawns), (2) permanent fix via <em>Image Capture.app</em> &rarr; select camera &rarr; "Connecting this camera opens: No application" (persists per camera serial). We added retry-with-backoff in <code>chdkpano-server</code>'s <code>get_or_open</code>, but the cleanest path is to take the device out of macOS's auto-mount list.</li>
 </ul>
 
 <h2 id="decisions">10. Open decisions to lock down</h2>
@@ -625,7 +646,7 @@ async fn main() -&gt; chdkptp::Result&lt;()&gt; {
   <li><strong>Lua-on-camera is unavoidable.</strong> Worth restating: if anyone reads this plan and expects the Rust crate to mean "no Lua anywhere," they'll be surprised. Now reinforced &mdash; even the in-memory shoot helper sends a 4-line Lua snippet.</li>
 </ul>
 
-<p class="footnote">Original inventory derived from reading the <code>svn2github/chdkptp</code> source mirror. Hardware findings added 2026-05-24 after live testing against a Canon PowerShot ELPH 180. Line counts are from the actual source tree as of the survey.</p>
+<p class="footnote">Original inventory derived from reading the <code>svn2github/chdkptp</code> source mirror. Hardware findings updated 2026-05-26 after Phases 0&ndash;3, file transfer, and live view all proven end-to-end on three Canon PowerShot ELPH 180 units. Line counts are from the actual source tree as of the survey.</p>
 
 </body>
 </html>

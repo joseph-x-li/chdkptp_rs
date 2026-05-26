@@ -6,9 +6,11 @@
 
 pub mod ext;
 pub mod file;
+pub mod liveview;
 pub mod opcode;
 pub mod script;
 
 pub use ext::ChdkVersion;
+pub use liveview::{FramebufferDesc, LiveViewFrame, LvDataHeader};
 pub use opcode::{Sub, PTP_OC_CHDK};
 pub use script::{ErrorCategory, ScriptId, ScriptMsg, ScriptStatus, ScriptValue};

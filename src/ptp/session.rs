@@ -106,9 +106,19 @@ impl PtpSession {
             self.bulk_out(dc).await?;
         }
 
-        // IN data phase, if expected
+        // IN data phase, if expected. PTP spec allows the responder to skip
+        // the data phase entirely (e.g. if there's nothing to return or an
+        // error occurred) — in that case the next container is the Response
+        // and we treat the call as "no data, see response code".
         let in_data = if matches!(data_phase, DataPhase::In) {
             let d = self.read_container().await?;
+            if d.container_type == opcode::CONTAINER_RESPONSE {
+                return Ok(PtpResponse {
+                    code: d.code,
+                    params: d.params,
+                    data: Vec::new(),
+                });
+            }
             if d.container_type != opcode::CONTAINER_DATA {
                 return Err(Error::UnexpectedContainer {
                     expected: opcode::CONTAINER_DATA,
